@@ -8,7 +8,7 @@ dotenv.config();
 
 const app = express();
 app.use(cors({
-    origin:["http://localhost:5177","http://localhost:5173"],
+    origin:["https://datathon-pied.vercel.app/login","https://student-portal-final-sable.vercel.app"],
     credentials:true
 }))
 
