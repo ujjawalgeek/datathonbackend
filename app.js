@@ -29,7 +29,7 @@ app.use(
         cookie: {
             secure: false,
             httpOnly: true,
-            sameSite: "lax",
+            sameSite: "none",
             maxAge: 5 * 60 * 60 * 1000*100, // 5 minutes
         },
     })
