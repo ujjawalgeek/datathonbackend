@@ -119,6 +119,15 @@ export const verifyLeader = asyncHandler(async (req, res) => {
 
   // store session
   req.session.user = student;
+  await new Promise((resolve, reject) => {
+    req.session.save((err) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve();
+    });
+  });
 
   // check if leader already has a team
   const existingTeam = await Team.findOne({

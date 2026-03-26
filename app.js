@@ -8,7 +8,10 @@ dotenv.config();
 
 const app = express();
 
-const isProduction = process.env.NODE_ENV === "production";
+const isProduction =
+    process.env.NODE_ENV === "production" ||
+    process.env.RENDER === "true" ||
+    process.env.VERCEL === "1";
 const allowedOrigins = [
     "https://student-portal-final-sable.vercel.app",
     "https://datathon-pied.vercel.app",
@@ -40,6 +43,7 @@ app.use(
         secret: process.env.SECRET_KEY || "fallback-secret-key",
         resave: false,
         saveUninitialized: false,
+        proxy: true,
         cookie: {
             secure: isProduction,
             httpOnly: true,
