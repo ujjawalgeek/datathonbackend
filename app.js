@@ -7,8 +7,22 @@ import cors from 'cors'
 dotenv.config(); 
 
 const app = express();
+
+const isProduction = process.env.NODE_ENV === "production";
+const allowedOrigins = [
+    "https://student-portal-final-sable.vercel.app",
+    "https://datathon-pied.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:5177",
+];
+
 app.use(cors({
-    origin:["https://student-portal-final-sable.vercel.app","https://datathon-pied.vercel.app"],
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        return callback(new Error("CORS origin not allowed"));
+    },
     credentials:true
 }))
 
@@ -27,10 +41,10 @@ app.use(
         resave: false,
         saveUninitialized: false,
         cookie: {
-            secure: false,
+            secure: isProduction,
             httpOnly: true,
-            sameSite: "lax",
-            maxAge: 5 * 60 * 60 * 1000*100, // 5 minutes
+            sameSite: isProduction ? "none" : "lax",
+            maxAge: 5 * 60 * 60 * 1000,
         },
     })
 );
