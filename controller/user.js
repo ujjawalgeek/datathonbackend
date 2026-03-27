@@ -1,106 +1,13 @@
-import nodemailer from "nodemailer";
 import { Student } from "../model/student.js";
 import { Team } from "../model/team.js";
+import { Dataset } from "../model/dataset.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
-import { Dataset } from "../model/dataset.js";
-
-
-// const generateOTP = () => {
-//   return Math.floor(100000 + Math.random() * 900000).toString();
-// };
-
-// // ✅ use ENV (IMPORTANT)
-// const transporter = nodemailer.createTransport({
-//   host: "smtp.gmail.com",
-//   port: 587,
-//   secure: false,
-//   auth: {
-//     user: process.env.EMAIL_USER,
-//     pass: process.env.EMAIL_PASS,
-//   },
-// });
 
 
 
-
-// // ================= SEND OTP =================
-// export const sendOTP = asyncHandler(async (req, res) => {
-//   const { email } = req.body;
-
-//   if (!email) {
-//     throw new ApiError(400, "Email is required");
-//   }
-
-//   const user = await Student.findOne({ email });
-
-//   if (!user) {
-//     throw new ApiError(400, "Entered email is not registered");
-//   }
-
-//   const existedLeader = await Team.findOne({ _id: user._id });
-
-//   if (existedLeader) {
-//     throw new ApiError(400, "Leader has already registered");
-//   }
-
-//   const otp = generateOTP();
-
-//   // store session
-//   req.session.otp = otp;
-//   req.session.user = user;
-
-//   await transporter.sendMail({
-//     from: process.env.EMAIL_USER,
-//     to: email,
-//     subject: "Your Login OTP",
-//     text: `Your OTP is ${otp}`,
-//   });
-//   console.log(req.session);
-
-//   return res
-//     .status(200)
-//     .json(new ApiResponse(200, null, "OTP sent successfully"));
-// });
-
-
-// export const verifyOTP = async (req, res) => {
-//   try {
-//     const { otp } = req.body;
-
-//     if (!req.session.otp) {
-//       return res.status(400).json({ message: "Session expired" });
-//     }
-
-//     if (req.session.otp !== otp) {
-//       return res.status(400).json({ message: "Invalid OTP" });
-//     }
-
-//     // OTP clear
-//     req.session.otp = null;
-
-//     // User fetch
-//     const user = await Student.findById(req.session.user._id);
-
-//     if (!user) {
-//       return res.status(404).json({ message: "User not found" });
-//     }
-
-//     // Session me store
-//     req.user = user;
-
-//     res.status(200).json({
-//       message: "Login successful",
-//       user,
-//     });
-
-//   } catch (err) {
-//     console.log(err)
-//     res.status(500).json({ error: err.message });
-//   }
-//   };
-
+/* ================= VERIFY LEADER ================= */
 
 export const verifyLeader = asyncHandler(async (req, res) => {
 
@@ -110,7 +17,6 @@ export const verifyLeader = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Email is required");
   }
 
-  // find student
   const student = await Student.findOne({ email });
 
   if (!student) {
@@ -119,17 +25,14 @@ export const verifyLeader = asyncHandler(async (req, res) => {
 
   // store session
   req.session.user = student;
+
   await new Promise((resolve, reject) => {
     req.session.save((err) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-      resolve();
+      if (err) reject(err);
+      else resolve();
     });
   });
 
-  // check if leader already has a team
   const existingTeam = await Team.findOne({
     members: student._id
   })
@@ -137,26 +40,6 @@ export const verifyLeader = asyncHandler(async (req, res) => {
     .populate("members", "name email")
     .populate("dataset");
 
-  // if team exists return full team data
-  if (existingTeam) {
-    return res.status(200).json(
-      new ApiResponse(
-        200,
-        {
-          leader: {
-            id: student._id,
-            name: student.name,
-            email: student.email,
-            year: student.year
-          },
-          team: existingTeam
-        },
-        "Leader already has a team"
-      )
-    );
-  }
-
-  // if team does not exist
   return res.status(200).json(
     new ApiResponse(
       200,
@@ -167,76 +50,142 @@ export const verifyLeader = asyncHandler(async (req, res) => {
           email: student.email,
           year: student.year
         },
-        team: null
+        team: existingTeam || null
       },
-      "Leader verified successfully"
+      existingTeam
+        ? "Leader already has a team"
+        : "Leader verified successfully"
     )
   );
 
 });
 
 
+
+/* ================= CREATE TEAM ================= */
+
 export const createTeam = asyncHandler(async (req, res) => {
 
-const leader = req.session.user;
+  const leader = req.session.user;
 
-const { teamName, memberEmail } = req.body;
+  if (!leader) {
+    throw new ApiError(401, "Session expired. Please login again");
+  }
 
-if (!teamName || !memberEmail) {
-throw new ApiError(400, "Team name and member email required");
-}
+  const { teamName, memberEmail } = req.body;
 
-const leaderTeam = await Team.findOne({
-members: leader._id
+  if (!teamName || !memberEmail) {
+    throw new ApiError(400, "Team name and member email required");
+  }
+
+  if (leader.email === memberEmail) {
+    throw new ApiError(400, "Leader and member must be different");
+  }
+
+  const member = await Student.findOne({ email: memberEmail });
+
+  if (!member) {
+    throw new ApiError(404, "Member not found");
+  }
+
+  if (leader.year !== member.year) {
+    throw new ApiError(400, "Both members must be from same year");
+  }
+
+  // leader already in team
+  const leaderTeam = await Team.findOne({
+    members: leader._id
+  });
+
+  if (leaderTeam) {
+
+    if (leaderTeam.dataset) {
+      throw new ApiError(400, "Leader already created a team");
+    }
+
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        leaderTeam,
+        "Team already exists, proceed to dataset selection"
+      )
+    );
+  }
+
+  // member already in team
+  const memberTeam = await Team.findOne({
+    members: member._id
+  });
+
+  if (memberTeam) {
+    throw new ApiError(400, "Member already in a team");
+  }
+
+  // duplicate team name
+  const existingTeamName = await Team.findOne({ teamName });
+
+  if (existingTeamName) {
+    throw new ApiError(400, "Team name already taken");
+  }
+
+  const team = await Team.create({
+    teamName,
+    teamYear: leader.year,
+    teamLeader: leader._id,
+    members: [leader._id, member._id],
+    dataset: null
+  });
+
+  const populatedTeam = await Team.findById(team._id)
+    .populate("teamLeader", "name email")
+    .populate("members", "name email")
+    .populate("dataset");
+
+  return res.status(201).json(
+    new ApiResponse(201, populatedTeam, "Team created successfully")
+  );
+
 });
 
-// 🔥 TEAM ALREADY EXISTS
-if (leaderTeam) {
 
-if (leaderTeam.dataset) {
-throw new ApiError(400, "Leader already created a team");
-}
 
-// allow dataset step
-return res.status(200).json(
-new ApiResponse(
-200,
-leaderTeam,
-"Team already exists, proceed to dataset selection"
-)
-);
-}
+/* ================= GET MY TEAM ================= */
 
-// continue normal team creation
-const member = await Student.findOne({ email: memberEmail });
+export const getMyTeam = asyncHandler(async (req, res) => {
 
-if (!member) {
-throw new ApiError(404, "Member not found");
-}
+  const leader = req.session.user;
 
-const team = await Team.create({
-teamName,
-teamYear: leader.year,
-teamLeader: leader._id,
-members: [leader._id, member._id],
-dataset: null
-});
+  if (!leader) {
+    throw new ApiError(401, "Session expired. Please login again");
+  }
 
-const populatedTeam = await Team.findById(team._id)
-  .populate("teamLeader", "name email")
-  .populate("members", "name email")
-  .populate("dataset");
+  const team = await Team.findOne({
+    members: leader._id
+  })
+    .populate("teamLeader", "name email")
+    .populate("members", "name email")
+    .populate("dataset");
 
-return res.status(201).json(
-new ApiResponse(201, populatedTeam, "Team created successfully")
-);
+  if (!team) {
+    throw new ApiError(404, "Team not found");
+  }
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      team,
+      "Team fetched successfully"
+    )
+  );
 
 });
 
 
 
+/* ================= SAVE DATASET ================= */
 
 export const saveDatasetToTeam = asyncHandler(async (req, res) => {
+
   const { theme } = req.body;
   const { teamId } = req.params;
 
@@ -250,26 +199,34 @@ export const saveDatasetToTeam = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Team not found");
   }
 
-  const normalizedTheme = String(theme).trim().toLowerCase();
-
-  // ✅ prevent duplicate dataset
   if (team.dataset) {
     throw new ApiError(400, "Dataset already assigned to this team");
   }
 
-  // ✅ create dataset (according to schema)
+  const normalizedTheme = String(theme).trim().toLowerCase();
+
+  const allowedThemes = [
+    "finance",
+    "sports",
+    "education",
+    "healthcare",
+    "studentperformance"
+  ];
+
+  if (!allowedThemes.includes(normalizedTheme)) {
+    throw new ApiError(400, "Invalid dataset theme");
+  }
+
   const dataset = await Dataset.create({
     team: teamId,
-    year: team.teamYear, // 🔥 auto from team
-    link: null,
+    year: team.teamYear,
     theme: normalizedTheme,
+    link: null
   });
 
-  // ✅ link dataset to team
   team.dataset = dataset._id;
   await team.save();
 
-  // ✅ populated response
   const updatedTeam = await Team.findById(teamId)
     .populate("dataset")
     .populate("members", "name email");
@@ -282,10 +239,11 @@ export const saveDatasetToTeam = asyncHandler(async (req, res) => {
         dataset,
         assignedDataset: {
           theme: normalizedTheme,
-          year: team.teamYear,
-        },
+          year: team.teamYear
+        }
       },
       "Dataset assigned to team successfully"
     )
   );
+
 });
